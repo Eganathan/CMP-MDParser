@@ -2,97 +2,99 @@ package dev.eknath.markdownparser
 
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import co.touchlab.kermit.Logger
 
 // Enum for markdown tokens
-enum class MarkDownTokens(val token: String, val pattern: Regex, val needsClosingTag: Boolean) {
-    BOLD(token = "*", pattern = "\\*(.*?)\\*".toRegex(), needsClosingTag = true),
-    ITALIC(token = "_", pattern = "_(.*?)_".toRegex(), needsClosingTag = true),
-    STROKE_THROUGH(token = "~", pattern = "~(.*?)~".toRegex(), needsClosingTag = true),
-    UNDER_LINE(token = "__", pattern = "_(.*?)_".toRegex(), needsClosingTag = true),
-    H1(token = "#", pattern = "# (.*?)$".toRegex(RegexOption.MULTILINE), needsClosingTag = false),
-    H2(token = "##", pattern = "## (.*?)$".toRegex(RegexOption.MULTILINE), needsClosingTag = false),
-    H3(token = "###", pattern = "### (.*?)$".toRegex(RegexOption.MULTILINE), needsClosingTag = false),
-    H4(token = "####", pattern = "#### (.*?)$".toRegex(RegexOption.MULTILINE), needsClosingTag = false),
-    H5(token = "#####", pattern = "##### (.*?)$".toRegex(RegexOption.MULTILINE), needsClosingTag = false),
-    H6(token = "######", pattern = "###### (.*?)$".toRegex(RegexOption.MULTILINE), needsClosingTag = false)
+enum class MarkDownTokens(
+    val token: String,
+    val pattern: Regex,
+    val needsClosingTag: Boolean,
+    val spanStyle: SpanStyle? = null
+) {
+    BOLD("*", "\\*(.*?)\\*".toRegex(), true, SpanStyle(fontWeight = FontWeight.Bold)),
+    ITALIC(
+        "_",
+        "_(.*?)_".toRegex(),
+        true,
+        SpanStyle(fontWeight = FontWeight.Normal)
+    ), // You can change SpanStyle here for Italic
+    STROKE_THROUGH(
+        "~",
+        "~(.*?)~".toRegex(),
+        true,
+        SpanStyle(textDecoration = TextDecoration.LineThrough)
+    ),
+    UNDER_LINE(
+        "__",
+        "__(.*?)__".toRegex(),
+        true,
+        SpanStyle(textDecoration = TextDecoration.Underline)
+    ),
+    H1("#", "^# (.*?)$".toRegex(RegexOption.MULTILINE), false),
+    H2("##", "^## (.*?)$".toRegex(RegexOption.MULTILINE), false),
+    H3("###", "^### (.*?)$".toRegex(RegexOption.MULTILINE), false),
+    H4("####", "^#### (.*?)$".toRegex(RegexOption.MULTILINE), false),
+    H5("#####", "^##### (.*?)$".toRegex(RegexOption.MULTILINE), false),
+    H6("######", "^###### (.*?)$".toRegex(RegexOption.MULTILINE), false)
 }
 
 // Function to create an annotated string based on markdown tokens
 fun parseMarkdownToAnnotatedString(input: String): AnnotatedString {
 
-    if (input.isEmpty() || input.nextTokenAndIndexIfExists() == null) {
-        Logger.d("Content is empty or tokens not found")
+    if (input.isEmpty()) {
+        Logger.d("Content is empty")
         return buildAnnotatedString { append(input) }
     }
 
-    Logger.d("Content is not empty or tokens are available")
+    Logger.d("Parsing content")
 
     val openTokensMap = mutableMapOf<MarkDownTokens, Int>()
-    var stringRequiresParsing = input
+    var currentText = input
     var startIndex = 0
-    var trimEndIndex = 0
 
-    val annotatedString = buildAnnotatedString {
-        var tokenAndIndex = stringRequiresParsing.nextTokenAndIndexIfExists()
+    return buildAnnotatedString {
+        var tokenAndIndex = currentText.nextTokenAndIndexIfExists()
 
         while (tokenAndIndex != null) {
             val (token, tokenIndex) = tokenAndIndex
-            Logger.d(
-                "token found: $token at index: $tokenIndex isAvailableAtOpenTokenMap:${
-                    openTokensMap.containsKey(
-                        token
-                    )
-                }"
-            )
+            Logger.d("Token found: ${token.token} at index $tokenIndex")
 
             if (openTokensMap.containsKey(token)) {
-                Logger.d("a close token found: $token")
-                //close tag
-                trimEndIndex = tokenIndex
-                println("close MD: ${token}")
-                openTokensMap.minus(token)
-                if (token == MarkDownTokens.BOLD)
-                    pushStyle(style = SpanStyle(fontWeight = FontWeight.Normal))
+                Logger.d("Close Token Logic")
+                // Closing token
+                val openingIndex = openTokensMap.remove(token) ?: 0
+                append(currentText.substring(0, tokenIndex))
+                pop()
+
             } else {
-                Logger.d("OpenTokenFound: $token")
-                //open tag
-                openTokensMap.plus(token to tokenIndex)
-                trimEndIndex = tokenIndex
-                val textToAppend = stringRequiresParsing.substring(startIndex = startIndex, endIndex = trimEndIndex)
-                append(textToAppend)
+                Logger.d("Open Token Logic")
+                // Opening token
+                openTokensMap[token] = tokenIndex
+                append(currentText.substring(0, tokenIndex))
 
-                startIndex = trimEndIndex.plus(token.token.length)
-                stringRequiresParsing = if(stringRequiresParsing.lastIndex > startIndex)stringRequiresParsing.substring(startIndex = startIndex) else ""
-                Logger.d("updatedThe stringRequiresParsing :$stringRequiresParsing")
-                startIndex = 0
-                trimEndIndex = 0
-
-                if(token  == MarkDownTokens.BOLD)
-                    pushStyle(style = SpanStyle(fontWeight = FontWeight.Bold))
+                if (token.spanStyle != null)
+                    pushStyle(token.spanStyle)
             }
-            tokenAndIndex = stringRequiresParsing.nextTokenAndIndexIfExists()
+
+            // Update string and indices
+            currentText = currentText.substring(tokenIndex + token.token.length)
+            tokenAndIndex = currentText.nextTokenAndIndexIfExists()
         }
-        Logger.d("Appending the balance string that has no token $stringRequiresParsing")
-        append(stringRequiresParsing)
+
+        // Append remaining text
+        Logger.d("Appending remaining text")
+        append(currentText)
     }
-    return annotatedString
 }
 
+// Helper function to find the next token and its index
 private fun String.nextTokenAndIndexIfExists(): Pair<MarkDownTokens, Int>? {
-    Logger.d("searchingToken")
-    val tokens = MarkDownTokens.entries
-    // We iterate over the tokens and find the token with the smallest valid index
-    Logger.d("inputForToken: $this")
-    val nextToken =
-        tokens.minByOrNull { this.indexOf(it.token).takeIf { idx -> idx != -1 } ?: Int.MAX_VALUE }
-    val nextTokenIndex = nextToken?.let { this.indexOf(it.token) } ?: -1
-
-    Logger.d("outputForTokenLogic: token:$nextToken  index:$nextTokenIndex $this")
-    // If there is no valid token or index, return null
-    return if (nextToken == null || nextTokenIndex == -1) null else nextToken to nextTokenIndex
+    val tokens = MarkDownTokens.entries.mapNotNull { token ->
+        val index = this.indexOf(token.token)
+        if (index != -1) token to index else null
+    }
+    return tokens.minByOrNull { it.second }
 }
-
